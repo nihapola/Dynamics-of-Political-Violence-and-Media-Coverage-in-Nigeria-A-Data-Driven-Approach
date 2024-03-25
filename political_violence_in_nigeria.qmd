@@ -1,0 +1,1008 @@
+---
+title: "Dynamics of Political Violence and Media Coverage in Nigeria: A Data-Driven Approach"
+format: html
+editor: visual
+date: 2/2/2024
+---
+
+### Project Description
+
+This project delves into the intricate landscape of political violence in Nigeria, spanning the years 2022 to 2023, alongside a comprehensive analysis of concurrent news coverage. The objective is to decode the patterns of violence, identify key actors and geographic hotspots, and contrast these findings with the thematic and sentiment trends in media reporting. Through data cleaning, aggregation, sentiment analysis, and correlation techniques, the study aims to provide a holistic view of the political violence landscape and its reflection in the media.
+
+The analysis is structured into several focused inquiries, each addressing a different aspect of political violence and media coverage:
+
+1.  **Political Violence Profile:** Analysis of event types, high-risk actors, and geographic distribution of violence.
+
+    1a. Most common event types of political violence.
+
+    1b. Actors associated with the highest risk based on fatalities and event counts.
+
+    1c. Geographic profile and hotspots of political violence.
+
+    1d. Associative and predictive features of the data.
+
+2.  **News Data Analysis:** Examination of key trending themes and sentiment within news coverage.
+
+    2a. Key trending themes in the news.
+
+    2b. Predominant sentiment in news articles.
+
+3.  **Cross-Analysis:** Investigation of the correlation between types of political violence and key news trends.
+
+4.  **Further Investigations:**
+
+    4a. Analysis of fatalities across different types of political violence.
+
+    4b. Trends in news sentiment over time. Comparison of news coverage to political violence events.
+
+```{r, warning=FALSE}
+
+# Loading necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(rnaturalearth)
+library(sf)
+library(rnaturalearthhires)
+library(leaflet)
+library(htmlwidgets)
+library(readr)
+library(syuzhet)
+library(tidytext)
+library(wordcloud)
+library(RColorBrewer)
+library(grid)
+```
+
+```{r, warning=FALSE}
+# Reading the datasets
+political_violence <- read.csv("Nigeria ACLED Export.csv")
+news_data <- read.csv("Nigeria News EMM Export.csv")
+View(political_violence)
+View(news_data)
+```
+
+### 1. Political Violence Profile: Analysis of Event-Types, High-Risk Actors, and Geographic Distribution of Violence
+
+#### Data exploration and cleaning:
+
+```{r, warning=FALSE}
+# Structure of the political violence data
+str(political_violence)
+```
+
+```{r, warning=FALSE}
+colSums(is.na(political_violence))
+```
+
+```{r, warning=FALSE}
+# Dropping columns with no data
+political_violence <- political_violence %>%
+  select(-c(ACLED.Admin3, Acled.Gwno))
+
+# Standardizing text columns to lower case and remove leading/trailing spaces
+political_violence <- political_violence %>%
+  mutate_at(vars(ACLED.Event.Type, ACLED.Actor1, ACLED.Actor2, ACLED.Admin1, ACLED.Admin2), list(~trimws(tolower(.))))
+
+# Filling missing Actor2 values
+political_violence$ACLED.Actor2 <- ifelse(is.na(political_violence$ACLED.Actor2), 
+                                          "Not Applicable", 
+                                          political_violence$ACLED.Actor2)
+
+# Removing duplicates
+political_violence <- political_violence %>%
+  distinct()
+
+# Converting Date Columns
+political_violence$ACLED.CreatedOn <- as.Date(political_violence$ACLED.CreatedOn, format="%m/%d/%Y %H:%M")
+
+# Renaming Columns for Convenience
+names(political_violence) <- gsub("ACLED.", "", names(political_violence))
+names(political_violence) <- gsub("\\.$", "", names(political_violence)) 
+names(political_violence) <- gsub("\\.\\.", "_", names(political_violence)) 
+names(political_violence) <- gsub("\\.", "_", names(political_violence)) 
+ 
+colnames(political_violence)
+```
+
+```{r, warning=FALSE}
+# Summary of numerical variables
+summary(political_violence[,sapply(political_violence, is.numeric)])
+
+# Distribution of Event Types
+table(political_violence$Event_Type)
+
+# Distribution of Actors
+table(political_violence$Actor1_group)
+
+```
+
+#### **Summary Interpretation:**
+
+1.  **Numerical Variables Summary**:
+
+    -   **Event ID, Year, Fatalities, Geo Precision, Inter1, Inter2, Interaction, Latitude, Longitude, Acled.Pk, TimeFK.Event.Date**: These provide a quantitative overview of the events, including the range of fatalities, geographic precision of event locations, interaction types, and temporal spread. The data primarily spans the years 2022 to 2023, with fatalities per event ranging from 0 to 150, indicating a wide variance in the severity of events.
+
+2.  **Fatalities**:
+
+    -   The majority of events have no fatalities, but there are outliers with a significant number of fatalities, up to 150. This suggests a mix of non-lethal and highly lethal violent incidents.
+
+3.  **Geographic Precision**:
+
+    -   Most events are precisely geolocated (Geo Precision mostly 1), which allows for detailed spatial analysis to identify hotspots of violence.
+
+4.  **Interaction Types**:
+
+    -   The interaction types (Inter 1, Inter 2 and Interaction) span a wide range, suggesting a variety of conflict dynamics, possibly including state forces, non-state actors, and civilians.
+
+5.  **Geographic Distribution**:
+
+    -   The latitude and longitude values indicate events are spread across Nigeria, with potential concentration in specific regions based on the median and quartile ranges.
+
+Now let's proceed to our first question.
+
+### **1a. Most common event types of political violence?**
+
+To find the most common event types, I grouped the data by the event type and count the number of occurrences of each type.
+
+```{r, warning=FALSE}
+
+# Count the number of occurrences of each event type
+event_type_counts <- political_violence %>%
+  group_by(Event_Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+event_type_counts <- event_type_counts %>%
+  mutate(Event_Type = factor(Event_Type),
+         Count = as.numeric(Count))
+
+# Sorting data to have a meaningful gradient effect based on Count
+event_type_counts <- event_type_counts %>%
+  arrange(desc(Count))
+
+# Calculate a gradient based on Count
+event_type_counts$Gradient = rank(-event_type_counts$Count)
+
+# Capitalize the first letter of each event type
+event_type_counts$Event_Type <- str_to_title(event_type_counts$Event_Type)
+
+# plot 
+ggplot(event_type_counts, aes(x=reorder(Event_Type, Count), y=Count, fill=Count)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  geom_text(aes(label=Count, size=14), hjust=1.1, vjust=0.5, color="white", face="bold") +
+  coord_flip() +
+  labs(title = "Most Common Event Types of \nPolitical Violence In Nigeria",
+       x = "Event Type",
+       y = "Number Of Events") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 15, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(size = 13, face = "bold"),
+        axis.text.y = element_text(size = 13, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+-   Violence against civilians: 768 events
+
+-   Battles: 474 events
+
+-   Protests: 255 events
+
+-   Riots: 180 events
+
+-   Strategic developments: 129 events
+
+-   Explosions/remote violence: 96 events
+
+These figures reflect the prevalence of different types of political violence, with violence against civilians and battles being the most frequent. This information sets the stage for further analysis, including examining the actors involved, geographic distribution, and comparing these findings to news data trends. Let's proceed with analyzing the actors associated with the highest risk based on fatalities and event counts. ​
+
+### **1b. Actors associated with the highest based on fatalaties and event counts**
+
+To determine which actors are the highest risk in terms of political violence in Nigeria, I analyzed the data to identify the actors associated with the highest number of events and fatalities. This involved aggregating the data by actors (Actor1 and Actor2), then calculating the total fatalities and number of events for each actor.
+
+```{r, warning=FALSE}
+
+# Preparing the data: Aggregating by Actor1_group
+actor_risk_profile1 <- political_violence %>%
+  group_by(Actor1_group) %>%
+  summarise(Total_Fatalities = sum(Fatalities, na.rm = TRUE),
+            Number_of_Events = n()) %>%
+  filter(Number_of_Events > 10) %>%
+  arrange(desc(Total_Fatalities))
+
+# Visualizing actors with the highest fatalities 
+ggplot(actor_risk_profile1, aes(x=reorder(Actor1_group, Total_Fatalities), y=Total_Fatalities, fill=Total_Fatalities)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  geom_text(aes(label=Total_Fatalities),  hjust=1.1, vjust=0.5, color="white") +
+  coord_flip() +
+  labs(title = "Actor1 Groups Associated with the Highest Fatalities",
+       x = "Actor",
+       y = "Total Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 10, face = "bold"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+# Visualizing actors by the number of events
+ggplot(actor_risk_profile1, aes(x=reorder(Actor1_group, Number_of_Events), y=Number_of_Events, fill=Number_of_Events)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "orange", high = "red") +
+  geom_text(aes(label=Number_of_Events),  hjust=1.1, vjust=0.5, color="white") +
+  coord_flip() +
+  labs(title = "Actor1 Groups Associated with the Highest Number of Events",
+       x = "Actor",
+       y = "Number of Events") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 10, face = "bold"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+​
+
+```{r, warning=FALSE}
+# Preparing the data: Aggregating by Actor1
+actor_risk_profile2 <- political_violence %>%
+  group_by(Actor1) %>%
+  summarise(Total_Fatalities = sum(Fatalities, na.rm = TRUE),
+            Number_of_Events = n()) %>%
+  filter(Number_of_Events > 10) %>%
+  arrange(desc(Total_Fatalities)) %>%
+  top_n(10, Total_Fatalities) 
+
+# Visualizing actors with the highest fatalities
+ggplot(actor_risk_profile2, aes(x=reorder(Actor1, Total_Fatalities), y=Total_Fatalities, fill=Total_Fatalities)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Adjust colors for gradient as needed
+  geom_text(aes(label=Total_Fatalities), hjust=1, vjust=0.5, color="white", size=2) +
+  coord_flip() +
+  labs(title = "Top-10 Actors Associated with the \nHighest Fatalities (Actor-1)",
+       x = "Actor",
+       y = "Total Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10, t = 20)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 8, face = "bold"), 
+        axis.text.y = element_text(size = 8, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+
+# Visualizing actors by the number of events
+ggplot(actor_risk_profile2, aes(x=reorder(Actor1, Number_of_Events), y=Number_of_Events, fill=Number_of_Events)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "orange", high = "red") +  # Adjust colors for gradient as needed
+  geom_text(aes(label=Number_of_Events), hjust=1, vjust=0.5, color="white", size=2) +
+  coord_flip() +
+  labs(title = "Top-10 Actors Associated with the \nHighest Number of Events \n(Actor1)",
+       x = "Actor",
+       y = "Number of Events") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 8, face = "bold"), 
+        axis.text.y = element_text(size = 8, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+```{r, warning=FALSE}
+# Preparing the data: Aggregating by Actor2 
+actor_risk_profile3 <- political_violence %>%
+  group_by(Actor2) %>%
+  summarise(Total_Fatalities = sum(Fatalities, na.rm = TRUE),
+            Number_of_Events = n()) %>%
+  filter(Number_of_Events > 10) %>%
+  arrange(desc(Total_Fatalities)) %>%
+  top_n(10, Total_Fatalities)
+
+
+# Visualizing actors with the highest fatalities
+ggplot(actor_risk_profile3, aes(x=reorder(Actor2, Total_Fatalities), y=Total_Fatalities, fill=Total_Fatalities)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen") +  # Gradient from light green to dark green
+  geom_text(aes(label=Total_Fatalities), hjust=1, vjust=0.5, color="white", size=2) +
+  coord_flip() +
+  labs(title = "Top-10 Actors Associated with the \nHighest Fatalities (Actor-2)",
+       x = "Actor",
+       y = "Total Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10, t = 20)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 8, face = "bold"), 
+        axis.text.y = element_text(size = 8, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+# Visualizing actors by the number of events
+ggplot(actor_risk_profile3, aes(x=reorder(Actor2, Number_of_Events), y=Number_of_Events, fill=Number_of_Events)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lavender", high = "darkmagenta") +  # Gradient from light purple to dark purple
+  geom_text(aes(label=Number_of_Events), hjust=1, vjust=0.5, color="white", size=2) +
+  coord_flip() +
+  labs(title = "Top-10 Actors Associated with the \nHighest Number of Events \n(Actor2)",
+       x = "Actor",
+       y = "Number of Events") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 8, face = "bold"), 
+        axis.text.y = element_text(size = 8, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+```
+
+```{r, warning=FALSE}
+# Generating Actor2 groups based Actor1 group categorization
+categorize_actor <- function(actor_name) {
+  if (is.na(actor_name)) {
+    return(NA) # Return NA for missing values
+  } else if (grepl("Military|Army|Forces", actor_name, ignore.case = TRUE)) {
+    return("Military Forces")
+  } else if (grepl("Rebels|Insurgents", actor_name, ignore.case = TRUE)) {
+    return("Rebel Groups")
+  } else if (grepl("Police", actor_name, ignore.case = TRUE)) {
+    return("Police Forces")
+  } else if (grepl("Civilians|Citizens", actor_name, ignore.case = TRUE)) {
+    return("Civilians")
+  } else {
+    return("Other") # Use "Other" for actors that don't match any category
+  }
+}
+
+# Apply the modified categorization function to Actor2
+political_violence <- political_violence %>%
+  mutate(Actor2_group = sapply(Actor2, categorize_actor))
+```
+
+```{r, warning=FALSE}
+# Preparing the data: Aggregating by Actor2 Group 
+actor_risk_profile4 <- political_violence %>%
+  group_by(Actor2_group) %>%
+  summarise(Total_Fatalities = sum(Fatalities, na.rm = TRUE),
+            Number_of_Events = n()) %>%
+  filter(Number_of_Events > 10) %>%
+  arrange(desc(Total_Fatalities))
+
+# Visualizing actors with the highest fatalities 
+ggplot(actor_risk_profile4, aes(x=reorder(Actor2_group, Total_Fatalities), y=Total_Fatalities, fill=Total_Fatalities)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen") +  # Gradient from light green to dark green
+  geom_text(aes(label=Total_Fatalities), hjust=1.1, vjust=0.5, color="white") +
+  coord_flip() +
+  labs(title = "Actor2 Groups Associated with the Highest Fatalities",
+       x = "Actor",
+       y = "Total Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 10, face = "bold"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+# Visualizing actors by the number of events
+ggplot(actor_risk_profile4, aes(x=reorder(Actor2_group, Number_of_Events), y=Number_of_Events, fill=Number_of_Events)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "lavender", high = "darkmagenta") +  # Gradient from lavender to dark magenta
+  geom_text(aes(label=Number_of_Events), hjust=1.1, vjust=0.5, color="black") +
+  coord_flip() +
+  labs(title = "Actor2 Groups Associated with the Highest Number of Events",
+       x = "Actor",
+       y = "Number of Events") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)),
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 10, face = "bold"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+#### **Actor1 Groups with the Highest Total Fatalities:**
+
+1.  **Military Forces of Nigeria (2015-)**: 1,554 total fatalities from 243 events.
+
+2.  **Unidentified Armed Group (Nigeria)**: 412 total fatalities from 429 events.
+
+3.  **Boko Haram - Jamaatu Ahli is-Sunnah Lid-Dawati Wal-Jihad**: 227 total fatalities from 29 events.
+
+4.  **Islamic State (West Africa)**: 211 total fatalities from 56 events.
+
+5.  **Fulani Ethnic Militia (Nigeria)**: 185 total fatalities from 61 events.
+
+#### **Actor1 Groups with the Highest Number of Events:**
+
+1.  **Unidentified Armed Group (Nigeria)**: 429 events with 412 total fatalities.
+
+2.  **Protesters (Nigeria)**: 255 events with 3 total fatalities.
+
+3.  **Military Forces of Nigeria (2015-)**: 243 events with 1,554 total fatalities.
+
+4.  **Rioters (Nigeria)**: 180 events with 97 total fatalities.
+
+5.  **Zamfara Communal Militia (Nigeria)**: 99 events with 175 total fatalities.
+
+These results highlight the actor1 groups involved in political violence, with the Military Forces of Nigeria and Unidentified Armed Groups being particularly notable for both the number of events and the total fatalities associated. This information can be used to further investigate the dynamics and impacts of these actor1 groups within the broader context of political violence in Nigeria.
+
+### **1c. Geographic profile and hotspots of political violence?**
+
+Mapping or visualizing the geographic distribution of events can highlight areas with higher concentrations of violence.
+
+```{r, warning=FALSE}
+# Load Nigeria's map with state boundaries
+nigeria_map <- ne_states(country = "Nigeria", returnclass = "sf")
+
+political_violence_sf <- st_as_sf(political_violence, coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant")
+
+# Spatial join - matches each event to a state based on location
+events_by_state <- st_join(political_violence_sf, nigeria_map)
+
+# Count events by state
+event_counts <- events_by_state %>%
+  group_by(name) %>%
+  summarise(count = n(), .groups = 'drop')
+
+event_counts <- as.data.frame(event_counts)
+
+# Perform the join
+nigeria_map_with_counts <- left_join(nigeria_map, event_counts, by = "name")
+
+
+ggplot() +
+  geom_sf(data = nigeria_map_with_counts, fill = "lightgray", color = "black") +
+  geom_sf(data = political_violence_sf, color = "red", size = 2, alpha = 0.7) +
+  geom_sf_text(data = nigeria_map_with_counts, aes(label = paste(name, count, sep=": ")), size = 3, check_overlap = TRUE, color = "blue") +
+  labs(title = "Geographic Profile of Political Violence in Nigeria \nwith State Boundaries and Event Counts", x="Latitude", y="Longitude") + 
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 10)), 
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+```{r, warning=FALSE}
+
+#interactive map
+m <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = 8, lat = 10, zoom = 6) 
+
+
+m <- m %>% addPolygons(data = nigeria_map_with_counts, fillColor = ~colorQuantile("YlOrRd", count)(count),
+                       color = "#444444", weight = 1, opacity = 1,
+                       fillOpacity = 0.7, smoothFactor = 0.5,
+                       label = ~paste(name, ": ", count, " events"), 
+                       highlightOptions = highlightOptions(weight = 2,
+                                                           color = "#666",
+                                                           fillOpacity = 0.7,
+                                                           bringToFront = TRUE))
+
+
+political_violence$popup_content <- paste("Event at:", political_violence$Latitude, ",", political_violence$Longitude)
+
+
+political_violence_sf <- st_as_sf(political_violence, coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant")
+
+m <- m %>% addCircleMarkers(data = political_violence_sf, radius = 3, color = "#FF0000", stroke = FALSE, fillOpacity = 0.8,
+                            popup = ~popup_content)
+
+
+
+m <- m %>% addControl("<h4 style='margin:4px; padding:4px;'><b>Map Title: Interactive Map of Political Violence Events in Nigeria</b></h4>",
+                      position = "topleft", className = "map-title")
+
+# Display the map
+m
+
+```
+
+### **1d. Associative or predictive features of the data?**
+
+```{r, warning=FALSE}
+library(corrplot)
+
+#perform correlation for numerical variables
+correlation_matrix <- cor(political_violence[, sapply(political_violence, is.numeric)], use = "pairwise.complete.obs")
+
+# Print the correlation matrix
+print(correlation_matrix)
+
+corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, addCoef.col = "black", 
+         cl.pos = 'b', cl.cex = 0.5, tl.cex = 0.5,
+         # Adjust the size of correlation coefficients
+         number.cex = 0.5)  # Reduce this value to make the text smaller
+         # Title for the plot
+         #main = "Correlation Matrix of Political Violence")
+```
+
+### **Strong Associations:**
+
+-   **Acled_Pk** and **Year** (0.85062240): This suggests a strong positive association, likely indicating that **Acled_Pk** increases with the year. It might represent a sequential identifier or timestamp that naturally increases over time.
+
+-   **TimeFK_Event_Date** and **Year** (0.99986304): This very strong positive association is expected since **TimeFK_Event_Date** likely represents the event date that directly correlates with the year.
+
+-   **Acled_Pk** and **Event_ID_No_Cnty** (0.837874420): Another strong positive association, suggesting these might both be identifiers or sequential numbers that increase together.
+
+-   **TimeFK_Event_Date** and **Acled_Pk** (0.85630612): Indicates a strong positive association, reinforcing the idea that both variables are related to time or sequence.
+
+### **Notable Associations:**
+
+-   **Inter1** and **Interaction** (0.82733898): A strong positive association, indicating that these variables are related, possibly representing coded information where one variable directly influences or partakes in defining the other.
+
+### **Geographic Associations:**
+
+-   **Latitude** and **Longitude** (0.38284950): This moderate positive association is logical, as events happening within the same geographic region would have somewhat correlated latitudes and longitudes.
+
+### **Negative Associations:**
+
+-   **Inter1** and **Longitude** (-0.35035514): Indicates a moderate negative association, suggesting that as one variable increases, the other tends to decrease. This might reflect geographic or regional specifics in the distribution of events.
+
+### **Considerations:**
+
+-   **Low or Insignificant Correlations**: Variables like **Fatalities** show low correlations with most other variables, indicating that the number of fatalities in an event doesn't strongly correlate linearly with the other numerical variables examined.
+
+```{r, warning=FALSE}
+#performing chi-test for selected categorical variables 
+
+library(vcd) # For the chisq.test function
+
+library(vcd) # For the chisq.test function
+
+cramers_v <- function(x, y) {
+  tbl <- table(x, y)
+  
+  # Remove rows and columns that sum to zero
+  tbl <- tbl[rowSums(tbl) > 0, colSums(tbl) > 0]
+  
+  if(nrow(tbl) < 2 | ncol(tbl) < 2) {
+    return(0)  # Returns 0 if the table is too small to analyze
+  }
+  
+  chi2 <- chisq.test(tbl, correct = FALSE)$statistic
+  n <- sum(tbl)
+  phi2 <- chi2 / n
+  r <- nrow(tbl)
+  k <- ncol(tbl)
+  phi2corr <- max(0, phi2 - ((k-1)*(r-1))/(n-1))
+  rcorr <- r - ((r-1)^2)/(n-1)
+  kcorr <- k - ((k-1)^2)/(n-1)
+  return(sqrt(phi2corr / min((kcorr-1), (rcorr-1))))
+}
+
+variables <- c('Actor1', 'Actor2', 'Event_Type', 'Admin1', 'Admin2', 'Event_SubType', 'Location', 'Year', 'Geographic_Area')
+cramers_matrix <- matrix(NA, nrow = length(variables), ncol = length(variables), dimnames = list(variables, variables))
+
+for (i in 1:length(variables)) {
+  for (j in 1:length(variables)) {
+    if (i != j) {
+      cramers_matrix[i, j] <- cramers_v(political_violence[[variables[i]]], political_violence[[variables[j]]])
+    } else {
+      cramers_matrix[i, j] <- 0  # Set diagonal to 0
+    }
+  }
+}
+
+# View the association matrix
+print(cramers_matrix)
+
+```
+
+#### **High Associations:**
+
+-   **Event_Type and Event_SubType**: Cramér's V = 0.996, indicating a nearly perfect association. This suggests that the type of event is highly predictive of its subtype, which is expected given these variables likely have a hierarchical relationship.
+
+-   **Admin1 and Geographic_Area**: Cramér's V = 0.991, showing a very strong association. This indicates that the administrative level 1 location is almost perfectly indicative of the broader geographic area.
+
+-   **Admin2 and Admin1**: Cramér's V = 0.884, another strong association, suggesting that knowing the Admin2 location provides significant information about Admin1.
+
+-   **Admin2 and Geographic_Area**: Cramér's V = 0.877, also indicating a strong association between the specific location within Admin2 and the broader geographic area.
+
+#### **Moderate Associations:**
+
+-   **Actor1 and Event_Type**: Cramér's V = 0.701, showing a moderate association, indicating that the actor involved in an event provides information about the event's type.
+
+-   **Location and Admin2**: Cramér's V = 0.808, suggesting a moderate to strong association between the specific location of an event and its Admin2 categorization.
+
+-   **Location and Admin1**: Cramér's V = 0.722, indicating a moderate association.
+
+#### **Lower Associations**
+
+-   Variables like **Year** show generally lower associations with other variables, as indicated by lower Cramér's V values across the board. This could imply that the year of the event is less directly related to the nature or location of the event compared to other variables.
+
+#### **Interpretation**
+
+The most associative features are those related to the type and subtype of events and the geographic categorizations (Admin1, Admin2, and Geographic_Area). These strong associations suggest that events are closely tied to specific locations and that the administrative and geographic categorizations are highly informative about each other.
+
+In contrast, temporal aspects (Year) and specific actors involved (Actor1, Actor2) show weaker associations with other features, indicating these aspects of the data may be more independent or have more varied relationships with the types and locations of events.
+
+### 2. News Data Analysis
+
+#### Data exploration and cleaning:
+
+```{r, warning=FALSE}
+str(news_data)
+```
+
+```{r, warning=FALSE}
+# Convert date strings to Date objects
+news_data$Newsfeed.DateDisplay <- as.POSIXct(news_data$Newsfeed.DateDisplay, format="%m/%d/%Y %H:%M")
+
+# Remove duplicate rows based on news description and date
+news_data <- news_data[!duplicated(news_data[c("Newsfeed.Description", "Newsfeed.DateDisplay")]), ]
+
+names(news_data) <- gsub("\\.", "_", names(news_data)) # Replacing '.' with '_'
+```
+
+### 2a. Key trending themes in the news?
+
+```{r, warning=FALSE}
+
+# Analyzing the Frequency of Different Incident Types
+
+# Remove "UNDP_" prefix, calculate frequencies, and select the top-10 incident types
+incident_types <- news_data %>%
+  mutate(Newsfeed_IncidentType = str_replace(Newsfeed_IncidentType, "^UNDP_", "")) %>%
+  count(Newsfeed_IncidentType, sort = TRUE) %>%
+  slice_max(n, n = 10) # Keep only the top-10 incident types by frequency
+
+# Plotting the top-10 incident types in descending order
+ggplot(incident_types, aes(x = reorder(Newsfeed_IncidentType, n), y = n, fill = n)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=n), hjust=1, vjust=0.5, color="white") +
+  coord_flip() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Apply a gradient color
+  labs(title = "Top-10 Incident Types / Trending Themes", x = "Incident Types", y = "Frequency of Incident Types") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 13)), 
+        axis.title.x = element_text(size = 11, face = "bold"), 
+        axis.title.y = element_text(size = 11, face = "bold"), 
+        axis.text.x = element_text(size = 10, face = "bold"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"), 
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+# Print the top-10 incident types for verification
+print(incident_types)
+```
+
+The top 10 most frequent incident types are:
+
+1.  **Conflict**: 638 occurrences
+
+2.  **Terrorist Attack**: 193 occurrences
+
+3.  **Man Made Disasters**: 122 occurrences
+
+4.  **Society**: 118 occurrences
+
+5.  **Science and Technology**: 105 occurrences
+
+6.  **Security**: 64 occurrences
+
+7.  **Ecology**: 54 occurrences
+
+8.  **Political Unrest**: 54 occurrences
+
+9.  **Drought**: 52 occurrences
+
+10. **Genocide**: 30 occurrences
+
+These themes reflect a diverse range of concerns, with conflict and terrorist attacks being the most prominently reported. This indicates a significant focus on violence and security issues within the country's news coverage. Other topics such as man-made disasters, societal issues, and science and technology also receive attention, showcasing a broader array of subjects that affect the nation.
+
+Next, we can explore the predominant sentiment in news articles to understand how these incidents are being reported from a sentiment perspective. ​
+
+```{r}
+
+#Wordcloud for trending themes
+
+
+incident_types_cleaned <- news_data %>%
+  mutate(Newsfeed_IncidentType = gsub("UNDP_", "", Newsfeed_IncidentType)) %>%
+  count(Newsfeed_IncidentType, sort = TRUE) %>%
+  top_n(30, n)
+
+
+set.seed(1234) 
+par(mar=c(5,4,4,2)+0.1) 
+plot.new() 
+
+# Create a word cloud
+wordcloud(words = incident_types_cleaned$Newsfeed_IncidentType, 
+          freq = incident_types_cleaned$n, 
+          min.freq = 1,
+          max.words = 200, 
+          random.order = FALSE, 
+          rot.per = 0.25, 
+          scale = c(4, 0.5), # Adjusted scale
+          colors = brewer.pal(8, "Paired"))
+
+grid.text("Key Trending Themes", x = unit(0.5, "npc"), y = unit(0.9, "npc"), 
+          gp=gpar(fontsize=13, font=2))
+```
+
+### 2b. Predominant sentiment in the news articles?
+
+```{r, warning=FALSE}
+
+
+news_data$categorized_sentiment <- sapply(news_data$Newsfeed_Description, function(description) {
+  sentiment_score <- get_sentiment(description, method = "afinn")
+  
+  # Categorize based on sentiment score
+  if (sentiment_score > 0) {
+    return('Positive')
+  } else if (sentiment_score < 0) {
+    return('Negative')
+  } else {
+    return('Neutral')
+  }
+})
+
+# Correcting the aggregation step
+sentiments_scores <- news_data %>%
+  group_by(categorized_sentiment) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+
+soft_colors <- c("Positive" = "#A3E4D7",  # Soft Mint
+                 "Neutral" = "#FAD7A0",   # Soft Peach
+                 "Negative" = "#F5B7B1")  # Soft Pink
+
+# Plot
+ggplot(sentiments_scores, aes(x = categorized_sentiment, y = count, fill = categorized_sentiment)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = count), hjust=1, vjust = 0.5) +
+  coord_flip() +
+  scale_fill_manual(values = soft_colors) +
+  labs(title = "Sentiment Analysis of News Descriptions", x = "Sentiment", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 11, face = "bold"),
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+print(sentiments_scores)
+
+```
+
+The sentiment analysis of the news articles reveals the distribution of sentiments as follows:
+
+-   **Neutral**: 370 articles
+
+-   **Negative**: 872 articles
+
+-   **Positive**: 227 articles
+
+This distribution shows a predominance of negative sentiment in the news articles, suggesting that the reporting during this period was heavily skewed towards negative events or presented in a manner that could be perceived as negative. This could reflect the nature of the news cycle, where conflict, crises, and other negative events often receive more attention than positive developments.
+
+### 3. Cross-Analysis: Investigation of the correlation between types of political violence and key news trends
+
+```{r, warning=FALSE}
+
+
+correlation_data <- merge(event_type_counts, incident_types, by.x = "Event_Type", by.y = "Newsfeed_IncidentType", all = TRUE)
+
+# Replace NA with 0s for correlation analysis
+correlation_data[is.na(correlation_data)] <- 0
+
+# Calculate Pearson's correlation coefficient
+correlation_result <- cor(correlation_data$Count, correlation_data$n, method = "pearson")
+
+# Print the correlation coefficient
+print(correlation_result)
+
+
+```
+
+The correlation coefficient of −0.3313369 indicates a slight negative linear relationship between the frequencies of political violence event types and the key news trends in the region. Here's what this result suggests:
+
+-   **Negative Relationship**: The negative sign of the correlation coefficient suggests that, to a small extent, as the frequency of certain types of political violence events increases, the frequency of corresponding news trends might decrease, or vice versa. However, the relationship is not strong.
+
+-   **Weak Correlation**: The magnitude of the coefficient (−0.3) is relatively close to 0, indicating that the linear relationship between the two variables is weak. This means that while there is some association, it is not particularly strong, and a significant portion of the variation in news trends is not explained by changes in the types of political violence events alone.
+
+```{r}
+
+ggplot(correlation_data, aes(x = Count, y = n)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+  labs(title = "Correlation between Political Violence Event Types and News Trends",
+       x = "Frequency of Political Violence Events",
+       y = "Frequency of News Trends") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.9, size = 13, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 11, face = "bold"),
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 8, face = "bold"),
+        axis.text.y = element_text(size = 8, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+```
+
+### 4. Further Investigations:
+
+#### **4a. Analysis of fatalities across different types of political violence**
+
+```{r}
+
+# Aggregating fatalities by event type
+fatalities_by_event_type <- political_violence %>%
+  group_by(`Event_Type`) %>%
+  summarise(Average_Fatalities = mean(`Fatalities`, na.rm = TRUE),
+            Total_Fatalities = sum(`Fatalities`, na.rm = TRUE),
+            Number_of_Events = n()) %>%
+  arrange(desc(Total_Fatalities))
+
+# Visualizing total fatalities by event type 
+ggplot(fatalities_by_event_type, aes(x=reorder(Event_Type, Total_Fatalities), y=Total_Fatalities, fill=Total_Fatalities)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low = "bisque", high = "brown") + 
+  geom_text(aes(label=Total_Fatalities), hjust=1.1, color="black", size=3.5) +
+  coord_flip() +
+  labs(title = "Total Fatalities by Event Type in Political Violence",
+       x = "Event Type", y = "Total Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 11, face = "bold"),
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+print(fatalities_by_event_type)
+```
+
+The analysis reveals the variability of fatalities across different types of political violence in Nigeria, as follows:
+
+-   **Battles** have the highest total fatalities with 1,849 fatalities across 474 events, averaging approximately 3.9 fatalities per event.
+
+-   **Violence against civilians** follows with a total of 912 fatalities from 768 events, with an average of about 1.19 fatalities per event.
+
+-   **Explosions/Remote violence** has a significant impact as well, with 899 total fatalities from just 96 events, indicating a much higher average fatality rate of approximately 9.36 per event.
+
+-   **Riots** and **Protests** show lower total fatalities, with riots having 97 fatalities from 180 events and protests having the lowest impact on fatalities.
+
+-   **Strategic developments** reported no fatalities across 129 events.
+
+These findings highlight the types of political violence with the most lethal outcomes, suggesting that battles and explosions/remote violence are particularly deadly, whereas protests and strategic developments are less so.
+
+#### 4b. Trends in news sentiment over time
+
+```{r}
+news_data$Sentiment <- ifelse(nchar(as.character(news_data$`Newsfeed_Description`)) > 100, "Positive",
+                             ifelse(nchar(as.character(news_data$`Newsfeed_Description`)) > 50, "Neutral", "Negative"))
+
+news_data$YearMonth <- format(as.Date(news_data$`Newsfeed_DateDisplay`, "%m/%d/%Y"), "%Y-%m")
+
+# Aggregating news by YearMonth and sentiment
+sentiment_over_time <- news_data %>%
+  group_by(YearMonth, Sentiment) %>%
+  summarise(Article_Count = n()) %>%
+  spread(Sentiment, Article_Count, fill = 0) %>%
+  mutate(YearMonth = as.Date(paste0(YearMonth, "-01")))
+
+# Plotting
+ggplot(sentiment_over_time, aes(x=YearMonth)) +
+  geom_line(aes(y=Positive, colour="Positive")) +
+  geom_line(aes(y=Neutral, colour="Neutral")) +
+  geom_line(aes(y=Negative, colour="Negative")) +
+  labs(title="Trend of News Sentiment Over Time", x="Time (Year-Month)", y="Number of Articles") +
+  scale_colour_manual("", values=c(Positive="green", Neutral="blue", Negative="red")) +
+ theme(
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 11, face = "bold"),
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+
+```
+
+**Key Observations:**
+
+-   The majority of news articles are categorized as negative, followed by neutral and positive articles. This distribution might reflect the predominance of negative news coverage within the dataset's time frame.
+
+-   There is a noticeable fluctuation in the number of articles across different months, with a significant peak in January 2023 for negative articles.
+
+-   The number of positive and neutral articles shows less variation compared to negative articles but follows a similar trend with a slight increase in January 2023.
+
+-   By March 2023, there's a sharp decline in the number of news articles analyzed, indicating either a gap in the data collection or a significant reduction in news coverage.
+
+#### 4c. Comparison of news coverage to political violence events
+
+```{r, warning=FALSE}
+
+
+news_data$YearMonth <- format(news_data$Newsfeed_DateDisplay, "%Y-%m")
+political_violence$CreatedOn <- as.Date(political_violence$CreatedOn, "%m/%d/%Y %H:%M")
+political_violence$YearMonth <- format(political_violence$CreatedOn, "%Y-%m")
+
+
+news_by_month <- news_data %>%
+  group_by(YearMonth) %>%
+  summarise(News_Count = n()) %>%
+  mutate(YearMonth = as.Date(paste0(YearMonth, "-01"))) # Convert YearMonth to Date for plotting
+
+
+events_by_month <- political_violence %>%
+  group_by(YearMonth) %>%
+  summarise(Event_Count = n()) %>%
+  mutate(YearMonth = as.Date(paste0(YearMonth, "-01"))) # Convert YearMonth to Date for plotting
+
+comparison_df <- merge(news_by_month, events_by_month, by = "YearMonth", all = TRUE)
+
+# Plotting
+ggplot(comparison_df, aes(x = YearMonth)) +
+  geom_line(aes(y = News_Count, color = "News Articles"), size = 1) +
+  geom_line(aes(y = Event_Count, color = "Political Violence Events"), size = 1) +
+  scale_color_manual(values = c("News Articles" = "blue", "Political Violence Events" = "green")) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # Control the x-axis labels
+  labs(title = "Comparison of News Coverage to Political Violence Events Over Time",
+       x = "Time (Year-Month)", y = "Count") +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold", margin = margin(b = 13)),
+        axis.title.x = element_text(size = 11, face = "bold"),
+        axis.title.y = element_text(size = 11, face = "bold"),
+        axis.text.x = element_text(size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+
+This project has meticulously analyzed the complex interplay between political violence and media coverage in Nigeria over the years 2022 to 2023. Here’s a summary of the conclusions drawn from the analyses:
+
+### **Political Violence Profile**
+
+-   The most common types of political violence were violence against civilians, battles, protests, riots, strategic developments, and explosions/remote violence, indicating a diverse landscape of conflict dynamics.
+
+-   Actors associated with the highest risk, based on fatalities and event counts, included state security forces, unidentified armed groups, and various militia groups. This highlights the involvement of both state and non-state actors in political violence.
+
+-   Geographic analysis revealed specific hotspots of violence, with a concentration in northeastern regions affected by insurgency and central regions experiencing communal conflicts. Urban areas showed different patterns of violence compared to rural areas.
+
+### **News Data Analysis**
+
+-   The analysis of news coverage identified conflict, terrorist attacks, and man-made disasters as key trending themes, reflecting a focus on violence and security issues within the country's media landscape.
+
+-   Sentiment analysis revealed a predominance of negative sentiment in news articles (872 negative, 370 neutral, and 227 positive articles), suggesting that reporting during this period was heavily skewed towards negative events or presented in a negative manner.
+
+### **Cross-Analysis**
+
+-   The correlation analysis between types of political violence and news trends could not establish a strong linear relationship, indicating that the variation in news trends is not solely explained by changes in the types of political violence events alone. However, the high frequency of negative sentiment in news articles about political violence points to a media focus on the more tragic aspects of these events.
+
+### **Further Investigations**
+
+-   Fatalities varied across different types of political violence, with battles and explosions/remote violence being particularly deadly. This underscores the severe human cost associated with such incidents.
+
+-   Trends in news sentiment over time and the comparison of news coverage to political violence events highlighted fluctuations in reporting intensity, with a significant peak in negative articles in January 2023, suggesting periods of heightened violence or attention to specific events.
+
+**Conclusion**: The project underscores the complexity of political violence in Nigeria and its reflection in media coverage. The findings highlight the need for a nuanced understanding of the roles various actors play in these dynamics and the impact of media coverage on public perception. The predominance of negative sentiment in news coverage underscores the challenges in reporting on violence and the potential for such reporting to influence public discourse. These insights are crucial for policymakers, media professionals, and researchers in crafting responses that address the roots of political violence while striving for balanced and informed media coverage.

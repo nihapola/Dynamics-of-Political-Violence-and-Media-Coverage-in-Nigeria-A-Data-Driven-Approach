@@ -8,12 +8,12 @@ This project delves into the intricate landscape of political violence in Nigeri
 To provide a holistic view of the political violence landscape in Nigeria and its reflection in the media, highlighting the dynamics of conflict and the media's role in shaping public perception.
 
 **Data Sources**
-Nigeria ACLED Export.csv: Contains detailed records of political violence events.
-Nigeria News EMM Export.csv: Comprises news articles related to political violence.
+1. Nigeria ACLED Export.csv: Contains detailed records of political violence events.
+2. Nigeria News EMM Export.csv: Comprises news articles related to political violence.
 
 **Tools and Technologies**
-Programming Language: R
-Key Packages:
+1. Programming Language: R
+2. Key Packages:
 ggplot2: For creating advanced visualizations.
 dplyr, tidyverse: For data manipulation.
 lubridate: For handling date and time data.

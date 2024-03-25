@@ -14,20 +14,20 @@ To provide a holistic view of the political violence landscape in Nigeria and it
 **Tools and Technologies**
 1. Programming Language: R
 2. Key Packages:
-ggplot2: For creating advanced visualizations.
-dplyr, tidyverse: For data manipulation.
-lubridate: For handling date and time data.
-viridis: For color mapping.
-rnaturalearth, rnaturalearthhires: For mapping global data.
-sf: For handling spatial data.
-leaflet: For interactive maps.
-htmlwidgets: For rendering HTML widgets.
-readr: For reading CSV data.
-syuzhet: For sentiment analysis.
-tidytext: For text mining.
-wordcloud: For generating word clouds.
-RColorBrewer: For color palettes.
-grid: For enhancing grid graphics.
+- ggplot2: For creating advanced visualizations.
+- dplyr, tidyverse: For data manipulation.
+- lubridate: For handling date and time data.
+- viridis: For color mapping.
+- rnaturalearth, rnaturalearthhires: For mapping global data.
+- sf: For handling spatial data.
+- leaflet: For interactive maps.
+- htmlwidgets: For rendering HTML widgets.
+- readr: For reading CSV data.
+- syuzhet: For sentiment analysis.
+- tidytext: For text mining.
+- wordcloud: For generating word clouds.
+- RColorBrewer: For color palettes.
+- grid: For enhancing grid graphics.
 
 **Methodology**
 Data Cleaning and Preparation: Standardizing text columns, filling missing values, and converting date columns for better analysis.
